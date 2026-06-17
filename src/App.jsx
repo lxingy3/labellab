@@ -1,52 +1,25 @@
-import React, { useMemo, useState } from "react";
 import {
-  BarChart3,
-  Brain,
+  Beaker,
+  ChevronDown,
   Download,
   FlaskConical,
-  Search,
-  Settings2,
-  Table2,
+  Gauge,
+  Layers3,
+  Microscope,
+  SlidersHorizontal,
+  Upload,
 } from "lucide-react";
-import { sampleRows } from "./dataset";
-import { classDistribution, evaluate, predict, splitRows, trainModel } from "./model";
-
-const defaults = {
-  testRatio: 0.25,
-  alpha: 1,
-  useBigrams: true,
-};
-
-function pct(value) {
-  return `${Math.round(value * 100)}%`;
-}
-
-function downloadJson(name, data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  URL.revokeObjectURL(url);
-}
+import React from "react";
+import { settingControls } from "./config/defaults";
+import { downloadJson } from "./components/downloadJson";
+import { formatSetting, pct } from "./components/format";
+import { normalizeRows } from "./lib/data/validateRows";
+import { useTrainingRun } from "./hooks/useTrainingRun";
 
 function App() {
-  const [rows, setRows] = useState(sampleRows);
-  const [settings, setSettings] = useState(defaults);
-  const [inputText, setInputText] = useState(
-    "The applicant wants a clearer explanation of the automated denial."
-  );
-
-  const split = useMemo(() => splitRows(rows, settings.testRatio), [rows, settings.testRatio]);
-  const model = useMemo(
-    () => trainModel(split.train, settings),
-    [split.train, settings.alpha, settings.useBigrams]
-  );
-  const evaluation = useMemo(() => evaluate(model, split.test), [model, split.test]);
-  const livePrediction = useMemo(() => predict(model, inputText), [model, inputText]);
-  const distribution = classDistribution(rows);
-  const mistakes = evaluation.predictions.filter((row) => !row.correct);
+  const training = useTrainingRun();
+  const mistakes = training.run.evaluation.predictions.filter((row) => !row.correct);
+  const topPrediction = training.run.livePrediction[0];
 
   function importJson(event) {
     const file = event.target.files?.[0];
@@ -54,239 +27,209 @@ function App() {
     const reader = new FileReader();
     reader.onload = () => {
       const parsed = JSON.parse(String(reader.result || "[]"));
-      const clean = parsed
-        .filter((row) => row.text && row.label)
-        .map((row, index) => ({
-          id: row.id || `row-${index + 1}`,
-          text: String(row.text),
-          label: String(row.label),
-        }));
-      if (clean.length) setRows(clean);
+      const result = normalizeRows(parsed);
+      if (result.rows.length) training.setRows(result.rows);
     };
     reader.readAsText(file);
   }
 
-  const exportPayload = {
-    settings,
-    distribution,
-    labels: model.labels,
-    metrics: evaluation.perLabel,
-    accuracy: evaluation.accuracy,
-    confusionMatrix: evaluation.matrix,
-    predictions: evaluation.predictions,
-  };
-
   return (
-    <main className="shell">
-      <aside className="panel dataset-panel">
+    <main className="lab-shell">
+      <header className="lab-header">
         <div className="brand">
-          <div className="brand-mark">
-            <Brain size={22} />
-          </div>
+          <span className="brand-mark">
+            <Beaker size={24} />
+          </span>
           <div>
             <h1>LabelLab</h1>
-            <p>Local text classifier</p>
+            <p>Train a small classifier, inspect its behavior, and test new text locally.</p>
           </div>
         </div>
-
-        <label className="import-box">
-          <Table2 size={18} />
-          <span>Import JSON rows</span>
-          <input type="file" accept=".json" onChange={importJson} />
-        </label>
-
-        <section className="dataset-list">
-          <div className="list-heading">
-            <span>{rows.length} rows</span>
-            <span>{model.labels.length} labels</span>
-          </div>
-          {rows.map((row) => (
-            <article className="data-row" key={row.id}>
-              <strong>{row.label}</strong>
-              <p>{row.text}</p>
-            </article>
-          ))}
-        </section>
-      </aside>
-
-      <section className="workspace">
-        <header className="topbar panel">
-          <div>
-            <h2>Training run</h2>
-            <p>
-              {split.train.length} train rows, {split.test.length} test rows,{" "}
-              {model.vocabulary.length} tokens
-            </p>
-          </div>
-          <button onClick={() => downloadJson("labellab-report.json", exportPayload)}>
-            <Download size={17} />
-            Export report
+        <div className="header-actions">
+          <label className="ghost-button">
+            <Upload size={16} />
+            Import rows
+            <input type="file" accept=".json" onChange={importJson} />
+          </label>
+          <button className="solid-button" onClick={() => downloadJson("labellab-report.json", training.report)}>
+            <Download size={16} />
+            Export
           </button>
-        </header>
-
-        <section className="metric-grid">
-          <article className="metric-card panel">
-            <span>Accuracy</span>
-            <strong>{pct(evaluation.accuracy)}</strong>
-          </article>
-          <article className="metric-card panel">
-            <span>Train split</span>
-            <strong>{split.train.length}</strong>
-          </article>
-          <article className="metric-card panel">
-            <span>Test split</span>
-            <strong>{split.test.length}</strong>
-          </article>
-          <article className="metric-card panel">
-            <span>Vocabulary</span>
-            <strong>{model.vocabulary.length}</strong>
-          </article>
-        </section>
-
-        <section className="main-grid">
-          <article className="panel matrix-panel">
-            <div className="panel-title">
-              <BarChart3 size={18} />
-              <h3>Confusion matrix</h3>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Actual</th>
-                  {model.labels.map((label) => (
-                    <th key={label}>{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {model.labels.map((actual) => (
-                  <tr key={actual}>
-                    <th>{actual}</th>
-                    {model.labels.map((predicted) => (
-                      <td key={predicted}>{evaluation.matrix[actual][predicted]}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </article>
-
-          <article className="panel distribution-panel">
-            <div className="panel-title">
-              <FlaskConical size={18} />
-              <h3>Label distribution</h3>
-            </div>
-            {Object.entries(distribution).map(([label, count]) => (
-              <div className="bar-row" key={label}>
-                <span>{label}</span>
-                <div>
-                  <i style={{ width: `${(count / rows.length) * 100}%` }} />
-                </div>
-                <strong>{count}</strong>
-              </div>
-            ))}
-          </article>
-        </section>
-
-        <section className="panel">
-          <div className="panel-title">
-            <Search size={18} />
-            <h3>Misclassified rows</h3>
-          </div>
-          <div className="mistake-list">
-            {mistakes.length ? (
-              mistakes.map((row) => (
-                <article className="mistake" key={row.id}>
-                  <div>
-                    <strong>{row.label}</strong>
-                    <span>predicted {row.predicted}</span>
-                  </div>
-                  <p>{row.text}</p>
-                </article>
-              ))
-            ) : (
-              <p className="empty">No mistakes in this split.</p>
-            )}
-          </div>
-        </section>
-      </section>
-
-      <aside className="panel inspector">
-        <div className="panel-title">
-          <Settings2 size={18} />
-          <h3>Model settings</h3>
         </div>
+      </header>
 
-        <label className="control">
-          <span>Test split</span>
-          <strong>{pct(settings.testRatio)}</strong>
-          <input
-            type="range"
-            min="0.15"
-            max="0.45"
-            step="0.05"
-            value={settings.testRatio}
-            onChange={(event) =>
-              setSettings((current) => ({ ...current, testRatio: Number(event.target.value) }))
-            }
+      <section className="lab-hero">
+        <article className="specimen-card">
+          <span className="eyebrow">
+            <Microscope size={15} />
+            prediction tester
+          </span>
+          <textarea
+            value={training.inputText}
+            onChange={(event) => training.setInputText(event.target.value)}
+            aria-label="Text to classify"
           />
-        </label>
+          <div className="prediction-result">
+            <span>Top label</span>
+            <strong>{topPrediction?.label || "none"}</strong>
+            <small>{topPrediction ? pct(topPrediction.probability) : "0%"}</small>
+          </div>
+        </article>
 
-        <label className="control">
-          <span>Smoothing</span>
-          <strong>{settings.alpha.toFixed(1)}</strong>
-          <input
-            type="range"
-            min="0.2"
-            max="2"
-            step="0.2"
-            value={settings.alpha}
-            onChange={(event) =>
-              setSettings((current) => ({ ...current, alpha: Number(event.target.value) }))
-            }
-          />
-        </label>
-
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={settings.useBigrams}
-            onChange={(event) =>
-              setSettings((current) => ({ ...current, useBigrams: event.target.checked }))
-            }
-          />
-          Use bigrams
-        </label>
-
-        <div className="prediction-box">
-          <h3>Prediction tester</h3>
-          <textarea value={inputText} onChange={(event) => setInputText(event.target.value)} />
-          <div className="confidence-list">
-            {livePrediction.map((item) => (
-              <div className="confidence" key={item.label}>
+        <section className="run-card">
+          <span className="eyebrow">
+            <FlaskConical size={15} />
+            active run
+          </span>
+          <div className="run-metrics">
+            <Metric label="Accuracy" value={pct(training.run.evaluation.accuracy)} />
+            <Metric label="Macro F1" value={pct(training.run.evaluation.macroF1)} />
+            <Metric label="Labels" value={training.run.model.labels.length} />
+          </div>
+          <div className="confidence-orbit">
+            {training.run.livePrediction.map((item) => (
+              <div key={item.label}>
                 <span>{item.label}</span>
-                <div>
-                  <i style={{ width: `${item.probability * 100}%` }} />
-                </div>
+                <i style={{ width: `${item.probability * 100}%` }} />
                 <strong>{pct(item.probability)}</strong>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div className="metrics-list">
-          <h3>Per-label metrics</h3>
-          {evaluation.perLabel.map((item) => (
-            <article key={item.label}>
-              <strong>{item.label}</strong>
-              <span>precision {pct(item.precision)}</span>
-              <span>recall {pct(item.recall)}</span>
-              <span>f1 {pct(item.f1)}</span>
-            </article>
+        <aside className="control-card">
+          <span className="eyebrow">
+            <SlidersHorizontal size={15} />
+            model controls
+          </span>
+          {Object.entries(settingControls).map(([key, control]) => (
+            <label className="control" key={key}>
+              <span>{control.label}</span>
+              <strong>{formatSetting(training.settings[key], control.format)}</strong>
+              <input
+                type="range"
+                min={control.min}
+                max={control.max}
+                step={control.step}
+                value={training.settings[key]}
+                onChange={(event) => training.updateSetting(key, event.target.value)}
+              />
+            </label>
           ))}
-        </div>
-      </aside>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={training.settings.useBigrams}
+              onChange={(event) => training.toggleBigrams(event.target.checked)}
+            />
+            Use bigrams
+          </label>
+        </aside>
+      </section>
+
+      <section className="lab-drawers">
+        <LabDrawer icon={<Layers3 size={17} />} title="Dataset">
+          <div className="dataset-sample">
+            <div className="dataset-counts">
+              <strong>{training.rows.length}</strong>
+              <span>rows</span>
+              <strong>{training.run.model.vocabulary.length}</strong>
+              <span>tokens</span>
+            </div>
+            {training.rows.slice(0, 8).map((row) => (
+              <article key={row.id}>
+                <strong>{row.label}</strong>
+                <p>{row.text}</p>
+              </article>
+            ))}
+          </div>
+        </LabDrawer>
+
+        <LabDrawer icon={<Gauge size={17} />} title="Diagnostics">
+          <div className="diagnostic-grid">
+            <ConfusionMatrix labels={training.run.model.labels} matrix={training.run.evaluation.matrix} />
+            <div className="mistake-list">
+              <h3>Holdout mistakes</h3>
+              {mistakes.length ? (
+                mistakes.map((row) => (
+                  <article key={row.id}>
+                    <strong>{row.label}</strong>
+                    <span>predicted {row.predicted}</span>
+                    <p>{row.text}</p>
+                  </article>
+                ))
+              ) : (
+                <p>No mistakes in this split.</p>
+              )}
+            </div>
+          </div>
+        </LabDrawer>
+
+        <LabDrawer icon={<Microscope size={17} />} title="Learned features">
+          <div className="feature-grid">
+            {training.run.topFeatures.map((group) => (
+              <article key={group.label}>
+                <strong>{group.label}</strong>
+                <div>
+                  {group.features.slice(0, 8).map((feature) => (
+                    <span key={feature.token}>{feature.token}</span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </LabDrawer>
+      </section>
     </main>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <article>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
+function LabDrawer({ icon, title, children }) {
+  return (
+    <details className="lab-drawer">
+      <summary>
+        <span>
+          {icon}
+          {title}
+        </span>
+        <ChevronDown size={17} />
+      </summary>
+      <div className="drawer-body">{children}</div>
+    </details>
+  );
+}
+
+function ConfusionMatrix({ labels, matrix }) {
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Actual</th>
+          {labels.map((label) => (
+            <th key={label}>{label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {labels.map((actual) => (
+          <tr key={actual}>
+            <th>{actual}</th>
+            {labels.map((predicted) => (
+              <td key={predicted}>{matrix[actual][predicted]}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
